@@ -15,6 +15,7 @@
   let currentScenario = null;
   let playbackStepIndex = 0;
   let lastActionTimestamp = 0; // Track timing for human-like delays
+  let currentPlaybackSpeed = 1; // 1 = normal, 2 = 2x speed
   const DEFAULT_DELAY = 500; // Default 500ms delay between steps
   const MIN_DELAY = 100; // Minimum 100ms delay for responsiveness
   const SMART_WAIT_TIMEOUT = 10000; // 10-second timeout for element selection
@@ -69,6 +70,7 @@
 
       case 'START_PLAYBACK':
       case 'INITIATE_PLAYBACK':
+        currentPlaybackSpeed = message.speed || 1;
         startPlayback(message.scenario);
         sendResponse({ success: true });
         break;
@@ -374,11 +376,13 @@
         playbackStepIndex++;
         
         // Use the recorded delay for human-like timing, with minimum delay
+        // Apply speed multiplier (2x speed = half the delay)
         const nextAction = actions[playbackStepIndex];
         const delayMs = nextAction?.delay || DEFAULT_DELAY;
-        const actualDelay = Math.max(delayMs, MIN_DELAY);
+        const speedAdjustedDelay = Math.floor(delayMs / currentPlaybackSpeed);
+        const actualDelay = Math.max(speedAdjustedDelay, MIN_DELAY);
         
-        console.log('[Auto-Form Pro] Waiting', actualDelay + 'ms before next action (human-like timing)');
+        console.log('[Auto-Form Pro] Waiting', actualDelay + 'ms before next action (human-like timing at ' + currentPlaybackSpeed + 'x speed)');
         await delay(actualDelay);
       } catch (error) {
         console.error('[Auto-Form Pro] Playback error:', error);

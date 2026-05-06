@@ -13,6 +13,7 @@ let isPlaying = false;
 let currentScenario = null;
 let scenarios = [];
 let tempRecordedActions = [];
+let playbackSpeed = 1; // 1 = normal, 2 = 2x speed
 
 // DOM Elements
 const statusBar = document.getElementById('statusBar');
@@ -23,6 +24,7 @@ const btnPlay = document.getElementById('btnPlay');
 const btnExport = document.getElementById('btnExport');
 const btnImport = document.getElementById('btnImport');
 const btnClearLog = document.getElementById('btnClearLog');
+const btnSpeed = document.getElementById('btnSpeed');
 const scenarioList = document.getElementById('scenarioList');
 const scenarioCount = document.getElementById('scenarioCount');
 const logArea = document.getElementById('logArea');
@@ -36,8 +38,9 @@ const helpArrow = document.getElementById('helpArrow');
 async function initialize() {
   log('Auto-Form Pro popup initialized');
   
-  // Load saved scenarios
+  // Load saved scenarios and speed setting
   await loadScenarios();
+  await loadSpeedSetting();
   
   // Get current state from background
   await refreshState();
@@ -58,6 +61,7 @@ function bindEventListeners() {
   btnPlay.addEventListener('click', handlePlay);
   btnExport.addEventListener('click', handleExport);
   btnImport.addEventListener('click', handleImport);
+  btnSpeed.addEventListener('click', toggleSpeed);
   btnClearLog.addEventListener('click', clearLog);
   
   // Help toggle
@@ -200,10 +204,10 @@ async function handlePlay() {
     
     await sendMessage({ 
       action: 'START_PLAYBACK',
-      data: { scenario: currentScenario }
+      data: { scenario: currentScenario, speed: playbackSpeed }
     });
     
-    log('Starting playback: ' + currentScenario.name);
+    log('Starting playback: ' + currentScenario.name + ' at ' + playbackSpeed + 'x speed');
     
     // If we need to navigate, open the URL first
     if (currentScenario.startUrl && !tab.url.includes(new URL(currentScenario.startUrl).hostname)) {
@@ -213,7 +217,8 @@ async function handlePlay() {
       // Start playback immediately on current tab
       await chrome.tabs.sendMessage(tab.id, { 
         action: 'START_PLAYBACK',
-        scenario: currentScenario
+        scenario: currentScenario,
+        speed: playbackSpeed
       }).catch(async () => {
         // Inject content script if not present
         await chrome.scripting.executeScript({
@@ -223,7 +228,8 @@ async function handlePlay() {
         // Retry
         await chrome.tabs.sendMessage(tab.id, { 
           action: 'START_PLAYBACK',
-          scenario: currentScenario
+          scenario: currentScenario,
+          speed: playbackSpeed
         });
       });
     }
@@ -231,6 +237,40 @@ async function handlePlay() {
     log('Error starting playback: ' + error.message);
     isPlaying = false;
     updateUI();
+  }
+}
+
+/**
+ * Toggle playback speed between 1x and 2x
+ */
+async function toggleSpeed() {
+  playbackSpeed = playbackSpeed === 1 ? 2 : 1;
+  await chrome.storage.local.set({ playbackSpeed });
+  updateSpeedButton();
+  log('Playback speed set to ' + playbackSpeed + 'x');
+}
+
+/**
+ * Load speed setting from storage
+ */
+async function loadSpeedSetting() {
+  const result = await chrome.storage.local.get(['playbackSpeed']);
+  playbackSpeed = result.playbackSpeed || 1;
+  updateSpeedButton();
+}
+
+/**
+ * Update speed button UI
+ */
+function updateSpeedButton() {
+  if (!btnSpeed) return;
+  
+  btnSpeed.innerHTML = `<span class="btn-icon">${playbackSpeed === 2 ? '⚡⚡' : '⚡'}</span><span>Speed: ${playbackSpeed}x</span>`;
+  
+  if (playbackSpeed === 2) {
+    btnSpeed.classList.add('active');
+  } else {
+    btnSpeed.classList.remove('active');
   }
 }
 

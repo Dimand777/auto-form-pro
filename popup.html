@@ -154,6 +154,22 @@
       background: #e5e7eb;
     }
 
+    .btn-speed {
+      background: #f3f4f6;
+      color: #6b7280;
+      border: 2px solid transparent;
+    }
+
+    .btn-speed:hover {
+      background: #e5e7eb;
+    }
+
+    .btn-speed.active {
+      background: #10b981;
+      color: white;
+      border-color: #059669;
+    }
+
     .btn-icon {
       font-size: 16px;
     }
@@ -383,6 +399,14 @@
         <button id="btnImport" class="btn btn-import">
           <span class="btn-icon">↑</span>
           <span>Import JSON</span>
+        </button>
+      </div>
+
+      <!-- Speed Control -->
+      <div class="secondary-controls">
+        <button id="btnSpeed" class="btn btn-speed">
+          <span class="btn-icon">⚡</span>
+          <span>Speed: 1x</span>
         </button>
       </div>
 
