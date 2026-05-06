@@ -122,7 +122,7 @@ async function handleRecord() {
       log('🔴 Recording started on: ' + new URL(tab.url).hostname);
       updateUI();
       
-      // Notify content script
+      // Notify content script - it will inject the floating panel
       await chrome.tabs.sendMessage(tab.id, { 
         action: 'START_RECORDING',
         data: { startUrl: tab.url }
@@ -130,42 +130,11 @@ async function handleRecord() {
         // Content script will be injected automatically
       });
       
-      // Open a separate window for the recording panel that stays visible
-      openRecordingWindow();
+      log('🔴 Recording started - panel injected on page');
     }
   } catch (error) {
     log('❌ Error starting recording: ' + error.message);
   }
-}
-
-/**
- * Open a separate window for recording that stays visible
- */
-async function openRecordingWindow() {
-  // Check if window already exists
-  const windows = await chrome.windows.getAll({ populate: true });
-  const existingWindow = windows.find(w => w.type === 'popup' && w.tabs?.some(t => t.url.includes('recording-panel.html')));
-  
-  if (existingWindow) {
-    // Focus existing window
-    await chrome.windows.update(existingWindow.id, { focused: true });
-    return;
-  }
-  
-  // Create new window with the full panel UI
-  const width = 400;
-  const height = 600;
-  const left = Math.round((screen.width - width) / 2);
-  const top = Math.round((screen.height - height) / 2);
-  
-  await chrome.windows.create({
-    url: chrome.runtime.getURL('recording-panel.html'),
-    type: 'popup',
-    width: width,
-    height: height,
-    left: left,
-    top: top
-  });
 }
 
 /**

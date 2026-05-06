@@ -34,10 +34,5 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": ["recording-panel.html", "recording-panel.js"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  "web_accessible_resources": []
 }
