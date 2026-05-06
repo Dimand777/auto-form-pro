@@ -28,10 +28,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep channel open for async responses
 });
 
+// Store for pending logs when popup is closed
+let pendingLogs = [];
+
 // Handle tab updates to restore state on page reload/redirect
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
     handleTabUpdate(tabId, tab.url);
+  }
+  
+  // Log navigation events
+  if (changeInfo.status === 'loading' && tab.url && !tab.url.startsWith('chrome://')) {
+    logNavigation(tab.url, 'Page loading started');
+  }
+});
+
+// Handle tab activation (switching between tabs)
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const tab = await chrome.tabs.get(activeInfo.tabId);
+  if (tab.url && !tab.url.startsWith('chrome://')) {
+    logNavigation(tab.url, 'Tab switched');
   }
 });
 
@@ -72,6 +88,20 @@ async function handleMessage(message, sender, sendResponse) {
       sendResponse({ success: true });
       break;
 
+    case 'LOG_ACTION':
+      // Forward log to popup if open
+      try {
+        await chrome.runtime.sendMessage({ 
+          action: 'UPDATE_LOG', 
+          data: data 
+        });
+      } catch (e) {
+        // Popup may not be open, store log for later
+        await storePendingLog(data);
+      }
+      sendResponse({ success: true });
+      break;
+
     case 'PLAYBACK_STEP_COMPLETE':
       await handleStepComplete(data);
       sendResponse({ success: true });
@@ -80,6 +110,11 @@ async function handleMessage(message, sender, sendResponse) {
     case 'PLAYBACK_ERROR':
       await handlePlaybackError(data);
       sendResponse({ success: true });
+      break;
+
+    case 'GET_PENDING_LOGS':
+      const logs = await getPendingLogs();
+      sendResponse({ success: true, logs });
       break;
 
     default:
@@ -241,4 +276,53 @@ async function resetAllStates() {
     [STATE_KEYS.CURRENT_STEP_INDEX]: 0,
     [STATE_KEYS.START_URL]: ''
   });
+}
+
+/**
+ * Store pending log when popup is closed
+ */
+async function storePendingLog(data) {
+  pendingLogs.push({
+    ...data,
+    timestamp: Date.now()
+  });
+  // Keep only last 50 logs
+  if (pendingLogs.length > 50) {
+    pendingLogs = pendingLogs.slice(-50);
+  }
+}
+
+/**
+ * Get and clear pending logs
+ */
+async function getPendingLogs() {
+  const logs = [...pendingLogs];
+  pendingLogs = [];
+  return logs;
+}
+
+/**
+ * Log navigation event
+ */
+function logNavigation(url, event) {
+  const urlObj = new URL(url);
+  const displayUrl = urlObj.hostname + urlObj.pathname;
+  
+  const logData = {
+    message: `🌐 ${event}: ${displayUrl}`,
+    url: url,
+    timestamp: Date.now()
+  };
+  
+  // Try to send to popup
+  try {
+    chrome.runtime.sendMessage({ 
+      action: 'UPDATE_LOG', 
+      data: logData 
+    }).catch(() => {
+      // Popup not open, ignore
+    });
+  } catch (e) {
+    // Ignore errors
+  }
 }

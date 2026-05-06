@@ -50,6 +50,9 @@ async function initialize() {
   
   // Render scenarios list
   renderScenarios();
+  
+  // Setup message listener for real-time logs
+  setupLogListener();
 }
 
 /**
@@ -116,7 +119,7 @@ async function handleRecord() {
     });
     
     if (response?.success) {
-      log('Recording started on: ' + tab.url);
+      log('🔴 Recording started on: ' + new URL(tab.url).hostname);
       updateUI();
       
       // Notify content script
@@ -128,7 +131,7 @@ async function handleRecord() {
       });
     }
   } catch (error) {
-    log('Error starting recording: ' + error.message);
+    log('❌ Error starting recording: ' + error.message);
   }
 }
 
@@ -207,7 +210,8 @@ async function handlePlay() {
       data: { scenario: currentScenario, speed: playbackSpeed }
     });
     
-    log('Starting playback: ' + currentScenario.name + ' at ' + playbackSpeed + 'x speed');
+    log('▶️ Starting playback: ' + currentScenario.name + ' at ' + playbackSpeed + 'x speed');
+    log('📋 Scenario has ' + currentScenario.actions.length + ' actions');
     
     // If we need to navigate, open the URL first
     if (currentScenario.startUrl && !tab.url.includes(new URL(currentScenario.startUrl).hostname)) {
@@ -524,12 +528,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'PLAYBACK_COMPLETE') {
     isPlaying = false;
     updateUI();
-    log('Playback completed');
+    log('✅ Playback completed');
   } else if (message.action === 'PLAYBACK_ERROR') {
     isPlaying = false;
     updateUI();
-    log('Playback error: ' + message.error);
+    log('❌ Playback error: ' + message.error);
+  } else if (message.action === 'UPDATE_LOG') {
+    // Display real-time action logs
+    const data = message.data;
+    if (data && data.message) {
+      const url = data.url ? ` [${new URL(data.url).hostname}]` : '';
+      log(data.message + url);
+    }
+    sendResponse({ success: true });
   }
   sendResponse({ success: true });
   return true;
 });
+
+/**
+ * Setup listener for real-time logs
+ */
+function setupLogListener() {
+  // Request any pending logs from background
+  chrome.runtime.sendMessage({ action: 'GET_PENDING_LOGS' }).catch(() => {});
+}

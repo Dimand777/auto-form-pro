@@ -155,6 +155,16 @@
     lastActionTimestamp = now;
     notifyBackground('RECORD_ACTION', action);
     
+    // Get element description for logging
+    const elementDesc = getElementDescription(element);
+    const isLink = element.tagName === 'A' || element.closest('a');
+    const linkInfo = isLink ? ' [LINK]' : '';
+    
+    notifyBackground('LOG_ACTION', { 
+      message: `🖱️ CLICK on ${elementDesc}${linkInfo} (${selector})`,
+      url: window.location.href 
+    });
+    
     console.log('[Auto-Form Pro] Click recorded:', selector, 'Delay:', delay + 'ms');
   }
 
@@ -197,6 +207,14 @@
       lastActionTimestamp = now;
       notifyBackground('RECORD_ACTION', action);
       
+      // Log the input action
+      const elementDesc = getElementDescription(element);
+      const valuePreview = element.value.length > 20 ? element.value.substring(0, 20) + '...' : element.value;
+      notifyBackground('LOG_ACTION', { 
+        message: `⌨️ INPUT to ${elementDesc}: "${valuePreview}" (${element.value.length} chars)`,
+        url: window.location.href 
+      });
+      
       console.log('[Auto-Form Pro] Input recorded:', selector, 'Value:', element.value, 'Delay:', delay + 'ms');
     }, 300);
   }
@@ -236,6 +254,14 @@
     recordedActions.push(action);
     lastActionTimestamp = now;
     notifyBackground('RECORD_ACTION', action);
+    
+    // Log the change action
+    const elementDesc = getElementDescription(element);
+    const valueStr = typeof value === 'boolean' ? (value ? '✓ checked' : '☐ unchecked') : `"${value}"`;
+    notifyBackground('LOG_ACTION', { 
+      message: `🔄 CHANGE ${elementDesc}: ${valueStr}`,
+      url: window.location.href 
+    });
     
     console.log('[Auto-Form Pro] Change recorded:', selector, 'Value:', value, 'Delay:', delay + 'ms');
   }
@@ -472,6 +498,52 @@
    */
   function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Get human-readable element description
+   */
+  function getElementDescription(element) {
+    if (!element) return 'unknown element';
+    
+    const tagName = element.tagName.toLowerCase();
+    const type = element.type ? `[${element.type}]` : '';
+    const name = element.name ? ` "${element.name}"` : '';
+    const id = element.id ? ` #${element.id}` : '';
+    const placeholder = element.placeholder ? ` (placeholder: "${element.placeholder}")` : '';
+    const text = element.textContent ? element.textContent.trim().substring(0, 30) : '';
+    
+    // For links, show text and href
+    if (tagName === 'a') {
+      const href = element.href ? ` → ${new URL(element.href).pathname}` : '';
+      return `link "${text}"${href}`;
+    }
+    
+    // For buttons
+    if (tagName === 'button' || (tagName === 'input' && element.type === 'submit')) {
+      const btnText = element.value || text || 'button';
+      return `button "${btnText}"`;
+    }
+    
+    // For inputs
+    if (tagName === 'input') {
+      const inputType = element.type || 'text';
+      const inputName = element.name || element.id || element.placeholder || 'unnamed';
+      return `${inputType} field "${inputName}"`;
+    }
+    
+    // For select
+    if (tagName === 'select') {
+      return `dropdown "${element.name || 'unnamed'}"`;
+    }
+    
+    // For textarea
+    if (tagName === 'textarea') {
+      return `textarea "${element.name || element.id || 'unnamed'}"`;
+    }
+    
+    // Generic fallback
+    return `${tagName}${type}${name}${id}${placeholder}` || 'element';
   }
 
   /**
