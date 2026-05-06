@@ -149,6 +149,9 @@
     // Also listen for scroll events which may trigger dynamic content
     document.body.addEventListener('scroll', handleScroll, { passive: true });
     
+    // Inject floating panel on the page - it stays visible during recording
+    injectFloatingPanel();
+    
     console.log('[Auto-Form Pro] Recording started on:', currentStartUrl);
     console.log('[Auto-Form Pro] Using event delegation for dynamic content capture');
   }
@@ -179,6 +182,9 @@
     document.body.removeEventListener('keydown', handleDelegatedKeyDown, true);
     document.body.removeEventListener('scroll', handleScroll, { passive: true });
     
+    // Remove floating panel
+    removeFloatingPanel();
+    
     // Reset state
     lastActionTimestamp = 0;
     lastInputElement = null;
@@ -197,12 +203,177 @@
   }
 
   /**
-   * Update panel (now just logs to console since panel is in separate window)
+   * Inject floating recording panel into the page
+   */
+  function injectFloatingPanel() {
+    // Remove existing panel if any
+    removeFloatingPanel();
+    
+    // Create panel container
+    floatingPanel = document.createElement('div');
+    floatingPanel.id = 'auto-form-pro-panel';
+    floatingPanel.innerHTML = `
+      <div class="afp-header">
+        <span class="afp-dot"></span>
+        <span class="afp-title">Recording...</span>
+        <button class="afp-stop-btn" id="afp-stop">STOP</button>
+      </div>
+      <div class="afp-content">
+        <div class="afp-stats">
+          <span id="afp-action-count">0</span> actions captured
+        </div>
+        <div class="afp-log" id="afp-log"></div>
+      </div>
+    `;
+    
+    // Add styles
+    const styles = document.createElement('style');
+    styles.textContent = `
+      #auto-form-pro-panel {
+        position: fixed !important;
+        top: 10px !important;
+        right: 10px !important;
+        width: 280px !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+        z-index: 2147483647 !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        color: white !important;
+        overflow: hidden !important;
+        border: 2px solid rgba(255,255,255,0.2) !important;
+      }
+      #auto-form-pro-panel * {
+        box-sizing: border-box !important;
+      }
+      .afp-header {
+        display: flex !important;
+        align-items: center !important;
+        padding: 12px 16px !important;
+        background: rgba(0,0,0,0.2) !important;
+        border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+      }
+      .afp-dot {
+        width: 10px !important;
+        height: 10px !important;
+        background: #ff4444 !important;
+        border-radius: 50% !important;
+        margin-right: 10px !important;
+        animation: afp-pulse 1.5s infinite !important;
+        box-shadow: 0 0 10px #ff4444 !important;
+      }
+      @keyframes afp-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(0.9); }
+      }
+      .afp-title {
+        flex: 1 !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        color: white !important;
+      }
+      .afp-stop-btn {
+        padding: 6px 12px !important;
+        background: #ff4444 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        transition: all 0.2s !important;
+      }
+      .afp-stop-btn:hover {
+        background: #cc0000 !important;
+        transform: scale(1.05) !important;
+      }
+      .afp-content {
+        padding: 12px 16px !important;
+      }
+      .afp-stats {
+        font-size: 13px !important;
+        margin-bottom: 10px !important;
+        opacity: 0.9 !important;
+      }
+      .afp-stats span {
+        font-weight: 700 !important;
+        font-size: 16px !important;
+      }
+      .afp-log {
+        max-height: 150px !important;
+        overflow-y: auto !important;
+        background: rgba(0,0,0,0.3) !important;
+        border-radius: 6px !important;
+        padding: 8px !important;
+        font-size: 11px !important;
+        font-family: monospace !important;
+        line-height: 1.4 !important;
+      }
+      .afp-log-entry {
+        margin-bottom: 4px !important;
+        padding: 2px 0 !important;
+        border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+        color: #aaffaa !important;
+      }
+      .afp-log-entry:last-child {
+        border-bottom: none !important;
+      }
+    `;
+    
+    // Append to document
+    document.head.appendChild(styles);
+    document.body.appendChild(floatingPanel);
+    
+    // Bind stop button
+    const stopBtn = floatingPanel.querySelector('#afp-stop');
+    if (stopBtn) {
+      stopBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stopRecording();
+        notifyBackground('STOP_RECORDING_FROM_PANEL');
+      });
+    }
+    
+    console.log('[Auto-Form Pro] Floating panel injected');
+  }
+
+  /**
+   * Remove floating panel
+   */
+  function removeFloatingPanel() {
+    if (floatingPanel) {
+      floatingPanel.remove();
+      floatingPanel = null;
+    }
+    // Also remove any stray panels (in case of duplicates)
+    const existingPanels = document.querySelectorAll('#auto-form-pro-panel');
+    existingPanels.forEach(panel => panel.remove());
+  }
+
+  /**
+   * Update floating panel with action count and log
    */
   function updateFloatingPanel(message) {
-    // Panel is now in separate window, just log to console
-    if (message) {
-      console.log('[Auto-Form Pro Panel]', message);
+    if (!floatingPanel) return;
+    
+    const countEl = floatingPanel.querySelector('#afp-action-count');
+    const logEl = floatingPanel.querySelector('#afp-log');
+    
+    if (countEl) {
+      countEl.textContent = recordedActions.length;
+    }
+    
+    if (logEl && message) {
+      const entry = document.createElement('div');
+      entry.className = 'afp-log-entry';
+      entry.textContent = message;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      
+      // Keep only last 20 entries
+      while (logEl.children.length > 20) {
+        logEl.removeChild(logEl.firstChild);
+      }
     }
   }
 

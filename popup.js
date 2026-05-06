@@ -130,11 +130,37 @@ async function handleRecord() {
         // Content script will be injected automatically
       });
       
-      log('🔴 Recording started - popup will close, reopen to view progress');
+      // Open the full panel in a separate window that stays visible
+      openRecordingWindow();
     }
   } catch (error) {
     log('❌ Error starting recording: ' + error.message);
   }
+}
+
+/**
+ * Open popup.html in a separate window that stays visible during recording
+ */
+async function openRecordingWindow() {
+  // Check if window already exists
+  const windows = await chrome.windows.getAll({ populate: true });
+  const existingPanel = windows.find(w => 
+    w.type === 'popup' && 
+    w.tabs?.some(t => t.url?.includes('popup.html'))
+  );
+  
+  if (existingPanel) {
+    await chrome.windows.update(existingPanel.id, { focused: true });
+    return;
+  }
+  
+  // Open popup.html in a separate window
+  await chrome.windows.create({
+    url: chrome.runtime.getURL('popup.html'),
+    type: 'popup',
+    width: 400,
+    height: 600
+  });
 }
 
 /**
