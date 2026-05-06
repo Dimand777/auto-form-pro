@@ -103,13 +103,13 @@
     // Capture starting URL if not already set
     const currentStartUrl = startUrl || window.location.href;
     
-    // Add event listeners
+    // Add event listeners - use capture phase to catch all events
     document.addEventListener('click', handleClick, true);
+    document.addEventListener('mousedown', handleMouseDown, true);
     document.addEventListener('input', handleInput, true);
     document.addEventListener('change', handleChange, true);
-    
-    // Inject floating panel
-    injectFloatingPanel();
+    document.addEventListener('submit', handleSubmit, true);
+    document.addEventListener('keydown', handleKeyDown, true);
     
     console.log('[Auto-Form Pro] Recording started on:', currentStartUrl);
   }
@@ -124,11 +124,11 @@
     
     // Remove event listeners
     document.removeEventListener('click', handleClick, true);
+    document.removeEventListener('mousedown', handleMouseDown, true);
     document.removeEventListener('input', handleInput, true);
     document.removeEventListener('change', handleChange, true);
-    
-    // Remove floating panel
-    removeFloatingPanel();
+    document.removeEventListener('submit', handleSubmit, true);
+    document.removeEventListener('keydown', handleKeyDown, true);
     
     // Reset timestamp for next recording
     lastActionTimestamp = 0;
@@ -312,7 +312,7 @@
   }
 
   /**
-   * Handle click events
+   * Handle click events - captures ALL clicks
    */
   function handleClick(event) {
     if (!isRecording) return;
@@ -320,7 +320,11 @@
     const element = event.target;
     const selector = generateUniqueSelector(element);
     
-    if (!selector) return;
+    // Even if we can't generate a perfect selector, try to record the action
+    if (!selector) {
+      console.log('[Auto-Form Pro] Click detected but no selector generated for:', element.tagName);
+      return;
+    }
     
     const now = Date.now();
     const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
@@ -328,8 +332,9 @@
     const action = {
       type: 'click',
       selector: selector,
+      tagName: element.tagName,
       timestamp: now,
-      delay: delay, // Store the actual time since last action
+      delay: delay,
       url: window.location.href
     };
     
@@ -340,7 +345,8 @@
     // Get element description for logging
     const elementDesc = getElementDescription(element);
     const isLink = element.tagName === 'A' || element.closest('a');
-    const linkInfo = isLink ? ' [LINK]' : '';
+    const isButton = element.tagName === 'BUTTON' || element.type === 'submit' || element.type === 'button';
+    const linkInfo = isLink ? ' [LINK]' : isButton ? ' [BUTTON]' : '';
     
     const logMsg = `🖱️ CLICK: ${elementDesc}${linkInfo}`;
     notifyBackground('LOG_ACTION', { 
@@ -349,7 +355,116 @@
     });
     updateFloatingPanel(logMsg);
     
-    console.log('[Auto-Form Pro] Click recorded:', selector, 'Delay:', delay + 'ms');
+    console.log('[Auto-Form Pro] Click recorded:', selector, 'on', element.tagName, 'Delay:', delay + 'ms');
+  }
+
+  /**
+   * Handle mousedown events - backup for clicks that might be missed
+   */
+  function handleMouseDown(event) {
+    if (!isRecording) return;
+    
+    // Only record if we haven't recorded a click recently for this element
+    const element = event.target;
+    const now = Date.now();
+    
+    // Check if we already recorded a click on this element in the last 100ms
+    const recentClick = recordedActions.find(a => 
+      a.type === 'click' && 
+      a.timestamp > now - 100 &&
+      a.tagName === element.tagName
+    );
+    
+    if (!recentClick) {
+      // Record this as a click too
+      const selector = generateUniqueSelector(element);
+      if (selector) {
+        const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+        
+        recordedActions.push({
+          type: 'click',
+          selector: selector,
+          tagName: element.tagName,
+          timestamp: now,
+          delay: delay,
+          url: window.location.href
+        });
+        
+        lastActionTimestamp = now;
+        notifyBackground('RECORD_ACTION', { type: 'click', selector, timestamp: now, delay });
+        
+        const logMsg = `🖱️ MOUSE: ${getElementDescription(element)}`;
+        notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+        updateFloatingPanel(logMsg);
+      }
+    }
+  }
+
+  /**
+   * Handle form submissions
+   */
+  function handleSubmit(event) {
+    if (!isRecording) return;
+    
+    const form = event.target;
+    const selector = generateUniqueSelector(form);
+    
+    if (selector) {
+      const now = Date.now();
+      const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+      
+      recordedActions.push({
+        type: 'submit',
+        selector: selector,
+        tagName: 'FORM',
+        timestamp: now,
+        delay: delay,
+        url: window.location.href
+      });
+      
+      lastActionTimestamp = now;
+      notifyBackground('RECORD_ACTION', { type: 'submit', selector, timestamp: now, delay });
+      
+      const logMsg = `📤 SUBMIT: Form ${form.id || form.name || 'unnamed'}`;
+      notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+      updateFloatingPanel(logMsg);
+      
+      console.log('[Auto-Form Pro] Form submission recorded:', selector);
+    }
+  }
+
+  /**
+   * Handle keyboard events
+   */
+  function handleKeyDown(event) {
+    if (!isRecording) return;
+    
+    // Record special keys
+    if (event.key === 'Enter' || event.key === 'Tab' || event.key === 'Escape') {
+      const element = event.target;
+      const selector = generateUniqueSelector(element);
+      
+      if (selector) {
+        const now = Date.now();
+        const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+        
+        recordedActions.push({
+          type: 'keydown',
+          selector: selector,
+          key: event.key,
+          timestamp: now,
+          delay: delay,
+          url: window.location.href
+        });
+        
+        lastActionTimestamp = now;
+        notifyBackground('RECORD_ACTION', { type: 'keydown', selector, key: event.key, timestamp: now, delay });
+        
+        const logMsg = `⌨️ KEY: ${event.key} on ${getElementDescription(element)}`;
+        notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+        updateFloatingPanel(logMsg);
+      }
+    }
   }
 
   /**
