@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Form Pro</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      width: 380px;
+      min-height: 500px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .container {
+      padding: 16px;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 16px;
+    }
+
+    .header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .header p {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .main-content {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-idle {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    .status-recording {
+      background: #fee2e2;
+      color: #dc2626;
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-playing {
+      background: #dbeafe;
+      color: #2563eb;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .status-idle .status-dot { background: #9ca3af; }
+    .status-recording .status-dot { background: #dc2626; }
+    .status-playing .status-dot { background: #2563eb; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .btn {
+      padding: 10px 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-record {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-record:hover {
+      background: #b91d1d;
+    }
+
+    .btn-stop {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-stop:hover {
+      background: #4b5563;
+    }
+
+    .btn-play {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-play:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-export, .btn-import {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-export:hover, .btn-import:hover {
+      background: #e5e7eb;
+    }
+
+    .btn-icon {
+      font-size: 16px;
+    }
+
+    .secondary-controls {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .scenarios-section {
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .scenario-list {
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+    }
+
+    .scenario-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid #f3f4f6;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .scenario-item:last-child {
+      border-bottom: none;
+    }
+
+    .scenario-item:hover {
+      background: #f9fafb;
+    }
+
+    .scenario-item.selected {
+      background: #eff6ff;
+      border-left: 3px solid #2563eb;
+    }
+
+    .scenario-name {
+      flex: 1;
+      font-size: 12px;
+      color: #374151;
+    }
+
+    .scenario-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .scenario-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .scenario-btn:hover {
+      background: #d1d5db;
+    }
+
+    .scenario-btn.delete {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .scenario-btn.delete:hover {
+      background: #fecaca;
+    }
+
+    .log-section {
+      margin-bottom: 16px;
+    }
+
+    .log-area {
+      height: 80px;
+      background: #1f2937;
+      color: #10b981;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 11px;
+      padding: 8px;
+      border-radius: 6px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .help-section {
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .help-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .help-content {
+      font-size: 11px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    .help-content ol {
+      margin-left: 16px;
+    }
+
+    .help-content li {
+      margin-bottom: 4px;
+    }
+
+    .help-content code {
+      background: #e5e7eb;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .footer {
+      text-align: center;
+      padding-top: 8px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .footer p {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    .footer .brand {
+      color: #2563eb;
+      font-weight: 500;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 20px;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Auto-Form Pro</h1>
+      <p>Professional Web Form Automation</p>
+    </div>
+
+    <div class="main-content">
+      <!-- Status Bar -->
+      <div id="statusBar" class="status-bar status-idle">
+        <span class="status-dot"></span>
+        <span id="statusText">Ready to record</span>
+      </div>
+
+      <!-- Main Controls -->
+      <div class="controls">
+        <button id="btnRecord" class="btn btn-record">
+          <span class="btn-icon">●</span>
+          <span>Record</span>
+        </button>
+        <button id="btnStop" class="btn btn-stop" disabled>
+          <span class="btn-icon">■</span>
+          <span>Stop</span>
+        </button>
+        <button id="btnPlay" class="btn btn-play" disabled>
+          <span class="btn-icon">▶</span>
+          <span>Play</span>
+        </button>
+      </div>
+
+      <!-- Secondary Controls -->
+      <div class="secondary-controls">
+        <button id="btnExport" class="btn btn-export">
+          <span class="btn-icon">↓</span>
+          <span>Export JSON</span>
+        </button>
+        <button id="btnImport" class="btn btn-import">
+          <span class="btn-icon">↑</span>
+          <span>Import JSON</span>
+        </button>
+      </div>
+
+      <!-- Scenarios List -->
+      <div class="scenarios-section">
+        <div class="section-title">
+          <span>Saved Scenarios</span>
+          <span id="scenarioCount">0</span>
+        </div>
+        <div id="scenarioList" class="scenario-list">
+          <div class="empty-state">No scenarios saved yet</div>
+        </div>
+      </div>
+
+      <!-- Execution Log -->
+      <div class="log-section">
+        <div class="section-title">
+          <span>Execution Log</span>
+          <button id="btnClearLog" class="scenario-btn">Clear</button>
+        </div>
+        <div id="logArea" class="log-area">Auto-Form Pro initialized...
+</div>
+      </div>
+
+      <!-- Help & Git Instructions -->
+      <div class="help-section">
+        <div class="help-title" id="helpToggle">
+          <span>Help & Git Instructions</span>
+          <span id="helpArrow">▼</span>
+        </div>
+        <div id="helpContent" class="help-content hidden">
+          <p><strong>Quick Start:</strong></p>
+          <ol>
+            <li>Click <strong>Record</strong> to start capturing your actions</li>
+            <li>Interact with form elements on the page</li>
+            <li>Click <strong>Stop</strong> to save the scenario</li>
+            <li>Select a scenario and click <strong>Play</strong> to replay</li>
+          </ol>
+          <p style="margin-top: 8px;"><strong>Git Setup (for developers):</strong></p>
+          <ol>
+            <li>Initialize repository: <code>git init</code></li>
+            <li>Add all files: <code>git add .</code></li>
+            <li>Commit changes: <code>git commit -m "Initial setup"</code></li>
+            <li>Add remote: <code>git remote add origin &lt;your-repo-url&gt;</code></li>
+            <li>Push to GitHub: <code>git push -u origin main</code></li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <p>Developed by <span class="brand">Dmitri Smoljannikov</span></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
