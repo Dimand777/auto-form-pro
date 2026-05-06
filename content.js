@@ -121,9 +121,6 @@
     // Also listen for scroll events which may trigger dynamic content
     document.body.addEventListener('scroll', handleScroll, { passive: true });
     
-    // Inject floating panel - this is the ONLY panel visible during recording
-    injectFloatingPanel();
-    
     console.log('[Auto-Form Pro] Recording started on:', currentStartUrl);
     console.log('[Auto-Form Pro] Using event delegation for dynamic content capture');
   }
@@ -153,9 +150,6 @@
     document.body.removeEventListener('submit', handleDelegatedSubmit, true);
     document.body.removeEventListener('keydown', handleDelegatedKeyDown, true);
     document.body.removeEventListener('scroll', handleScroll, { passive: true });
-    
-    // Remove floating panel
-    removeFloatingPanel();
     
     // Reset state
     lastActionTimestamp = 0;

@@ -34,5 +34,10 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "web_accessible_resources": []
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "popup.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
