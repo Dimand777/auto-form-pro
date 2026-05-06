@@ -41,6 +41,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'loading' && tab.url && !tab.url.startsWith('chrome://')) {
     logNavigation(tab.url, 'Page loading started');
   }
+  
+  // Re-inject floating panel on page complete if recording
+  if (changeInfo.status === 'complete' && tab.url && !tab.url.startsWith('chrome://')) {
+    reInjectPanelIfRecording(tabId);
+  }
 });
 
 // Handle tab activation (switching between tabs)
@@ -115,6 +120,16 @@ async function handleMessage(message, sender, sendResponse) {
     case 'GET_PENDING_LOGS':
       const logs = await getPendingLogs();
       sendResponse({ success: true, logs });
+      break;
+
+    case 'STOP_RECORDING_FROM_PANEL':
+      await stopRecording();
+      // Notify all tabs to remove the floating panel
+      const tabs = await chrome.tabs.query({});
+      tabs.forEach(tab => {
+        chrome.tabs.sendMessage(tab.id, { action: 'STOP_RECORDING' }).catch(() => {});
+      });
+      sendResponse({ success: true });
       break;
 
     default:
@@ -299,6 +314,24 @@ async function getPendingLogs() {
   const logs = [...pendingLogs];
   pendingLogs = [];
   return logs;
+}
+
+/**
+ * Re-inject floating panel if recording is active
+ */
+async function reInjectPanelIfRecording(tabId) {
+  const state = await getCurrentState();
+  if (state.isRecording) {
+    // Small delay to ensure content script is ready
+    setTimeout(() => {
+      chrome.tabs.sendMessage(tabId, { 
+        action: 'RESUME_RECORDING',
+        data: { startUrl: state.startUrl }
+      }).catch(() => {
+        // Content script may not be available, will be injected automatically
+      });
+    }, 500);
+  }
 }
 
 /**
