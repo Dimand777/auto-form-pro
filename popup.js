@@ -130,40 +130,11 @@ async function handleRecord() {
         // Content script will be injected automatically
       });
       
-      // Open the full panel in a separate window that stays visible
-      openPersistentPanel();
+      log('🔴 Recording started - popup will close, reopen to view progress');
     }
   } catch (error) {
     log('❌ Error starting recording: ' + error.message);
   }
-}
-
-/**
- * Open the full panel in a persistent window that stays visible during recording
- */
-async function openPersistentPanel() {
-  // Check if panel window already exists
-  const windows = await chrome.windows.getAll({ populate: true });
-  const existingPanel = windows.find(w => 
-    w.type === 'popup' && 
-    w.tabs?.some(t => t.url.includes('popup.html'))
-  );
-  
-  if (existingPanel) {
-    await chrome.windows.update(existingPanel.id, { focused: true });
-    return;
-  }
-  
-  // Open popup.html in a window that stays visible
-  const width = 400;
-  const height = 600;
-  
-  await chrome.windows.create({
-    url: chrome.runtime.getURL('popup.html'),
-    type: 'popup',
-    width: width,
-    height: height
-  });
 }
 
 /**
