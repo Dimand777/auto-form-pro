@@ -17,6 +17,8 @@
   let lastActionTimestamp = 0; // Track timing for human-like delays
   let currentPlaybackSpeed = 1; // 1 = normal, 2 = 2x speed
   let floatingPanel = null; // Reference to floating UI panel
+  let workflowId = null; // Current workflow ID
+  let workflowStepIndex = null; // Current step in workflow
   const DEFAULT_DELAY = 500; // Default 500ms delay between steps
   const MIN_DELAY = 100; // Minimum 100ms delay for responsiveness
   const SMART_WAIT_TIMEOUT = 10000; // 10-second timeout for element selection
@@ -83,6 +85,32 @@
 
       case 'RESUME_PLAYBACK':
         resumePlayback(message.stepIndex);
+        sendResponse({ success: true });
+        break;
+
+      case 'EXECUTE_SCENARIO':
+        // Execute scenario as part of a workflow
+        currentPlaybackSpeed = message.speed || 1;
+        currentScenario = message.scenario;
+        isPlaying = true;
+        playbackStepIndex = 0;
+        workflowId = message.workflowId;
+        workflowStepIndex = message.stepIndex;
+        
+        console.log('[Auto-Form Pro] Executing scenario as workflow step:', message.scenario?.name);
+        
+        // Start playback and notify when complete
+        executeScenarioWithCallback(message.scenario, () => {
+          // Notify background that this workflow step is complete
+          chrome.runtime.sendMessage({
+            action: 'WORKFLOW_STEP_COMPLETE',
+            data: {
+              workflowId: workflowId,
+              stepIndex: workflowStepIndex
+            }
+          });
+        });
+        
         sendResponse({ success: true });
         break;
 
@@ -858,6 +886,79 @@
     isPlaying = true;
     playbackStepIndex = stepIndex || 0;
     await executePlayback();
+  }
+
+  /**
+   * Execute scenario with callback when complete (for workflow support)
+   */
+  async function executeScenarioWithCallback(scenario, onCompleteCallback) {
+    if (isPlaying || !scenario) {
+      if (onCompleteCallback) onCompleteCallback();
+      return;
+    }
+    
+    currentScenario = scenario;
+    isPlaying = true;
+    playbackStepIndex = 0;
+    
+    // Navigate to starting URL first if needed
+    if (scenario.startUrl && window.location.href !== scenario.startUrl) {
+      console.log('[Auto-Form Pro] Navigating to start URL:', scenario.startUrl);
+      window.location.href = scenario.startUrl;
+      // Store callback for after navigation
+      window._workflowCallback = onCompleteCallback;
+      return;
+    }
+    
+    // Execute actions and call callback when complete
+    await executePlaybackWithCallback(onCompleteCallback);
+  }
+
+  /**
+   * Execute playback with callback support
+   */
+  async function executePlaybackWithCallback(onCompleteCallback) {
+    if (!currentScenario || !currentScenario.actions) {
+      if (onCompleteCallback) onCompleteCallback();
+      return;
+    }
+    
+    const actions = currentScenario.actions;
+    
+    while (isPlaying && playbackStepIndex < actions.length) {
+      const action = actions[playbackStepIndex];
+      
+      try {
+        await executeAction(action);
+        notifyBackground('PLAYBACK_STEP_COMPLETE', { stepIndex: playbackStepIndex });
+        playbackStepIndex++;
+        
+        // Use the recorded delay for human-like timing
+        const nextAction = actions[playbackStepIndex];
+        const delayMs = nextAction?.delay || DEFAULT_DELAY;
+        const speedAdjustedDelay = Math.floor(delayMs / currentPlaybackSpeed);
+        const actualDelay = Math.max(speedAdjustedDelay, MIN_DELAY);
+        
+        await delay(actualDelay);
+      } catch (error) {
+        console.error('[Auto-Form Pro] Playback error:', error);
+        notifyBackground('PLAYBACK_ERROR', { error: error.message });
+        stopPlayback();
+        break;
+      }
+    }
+    
+    if (playbackStepIndex >= actions.length) {
+      console.log('[Auto-Form Pro] Scenario execution completed');
+      isPlaying = false;
+      
+      // Call the completion callback
+      if (onCompleteCallback) {
+        onCompleteCallback();
+      } else {
+        notifyBackground('STOP_PLAYBACK');
+      }
+    }
   }
 
   /**

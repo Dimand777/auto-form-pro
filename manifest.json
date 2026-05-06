@@ -9,7 +9,8 @@
     "tabs",
     "scripting",
     "activeTab",
-    "downloads"
+    "downloads",
+    "alarms"
   ],
   "background": {
     "service_worker": "background.js"
