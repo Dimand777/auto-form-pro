@@ -14,7 +14,9 @@
   let recordedActions = [];
   let currentScenario = null;
   let playbackStepIndex = 0;
-  const PLAYBACK_DELAY = 500; // Fixed 500ms delay between steps
+  let lastActionTimestamp = 0; // Track timing for human-like delays
+  const DEFAULT_DELAY = 500; // Default 500ms delay between steps
+  const MIN_DELAY = 100; // Minimum 100ms delay for responsiveness
   const SMART_WAIT_TIMEOUT = 10000; // 10-second timeout for element selection
 
   // Initialize
@@ -119,6 +121,9 @@
     document.removeEventListener('input', handleInput, true);
     document.removeEventListener('change', handleChange, true);
     
+    // Reset timestamp for next recording
+    lastActionTimestamp = 0;
+    
     console.log('[Auto-Form Pro] Recording stopped. Actions captured:', recordedActions.length);
   }
 
@@ -133,17 +138,22 @@
     
     if (!selector) return;
     
+    const now = Date.now();
+    const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+    
     const action = {
       type: 'click',
       selector: selector,
-      timestamp: Date.now(),
+      timestamp: now,
+      delay: delay, // Store the actual time since last action
       url: window.location.href
     };
     
     recordedActions.push(action);
+    lastActionTimestamp = now;
     notifyBackground('RECORD_ACTION', action);
     
-    console.log('[Auto-Form Pro] Click recorded:', selector);
+    console.log('[Auto-Form Pro] Click recorded:', selector, 'Delay:', delay + 'ms');
   }
 
   /**
@@ -160,26 +170,32 @@
     // Debounce input events - only record the last value
     clearTimeout(element._inputTimeout);
     element._inputTimeout = setTimeout(() => {
-      const action = {
-        type: 'input',
-        selector: selector,
-        value: element.value,
-        timestamp: Date.now(),
-        url: window.location.href
-      };
+      const now = Date.now();
       
       // Remove previous input action for same element (if within 1 second)
       const lastAction = recordedActions[recordedActions.length - 1];
       if (lastAction && lastAction.type === 'input' && lastAction.selector === selector) {
-        if (Date.now() - lastAction.timestamp < 1000) {
+        if (now - lastAction.timestamp < 1000) {
           recordedActions.pop();
         }
       }
       
+      const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+      
+      const action = {
+        type: 'input',
+        selector: selector,
+        value: element.value,
+        timestamp: now,
+        delay: delay, // Store the actual time since last action
+        url: window.location.href
+      };
+      
       recordedActions.push(action);
+      lastActionTimestamp = now;
       notifyBackground('RECORD_ACTION', action);
       
-      console.log('[Auto-Form Pro] Input recorded:', selector, 'Value:', element.value);
+      console.log('[Auto-Form Pro] Input recorded:', selector, 'Value:', element.value, 'Delay:', delay + 'ms');
     }, 300);
   }
 
@@ -203,18 +219,23 @@
       value = element.value;
     }
     
+    const now = Date.now();
+    const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+    
     const action = {
       type: 'change',
       selector: selector,
       value: value,
-      timestamp: Date.now(),
+      timestamp: now,
+      delay: delay, // Store the actual time since last action
       url: window.location.href
     };
     
     recordedActions.push(action);
+    lastActionTimestamp = now;
     notifyBackground('RECORD_ACTION', action);
     
-    console.log('[Auto-Form Pro] Change recorded:', selector, 'Value:', value);
+    console.log('[Auto-Form Pro] Change recorded:', selector, 'Value:', value, 'Delay:', delay + 'ms');
   }
 
   /**
@@ -352,8 +373,13 @@
         notifyBackground('PLAYBACK_STEP_COMPLETE', { stepIndex: playbackStepIndex });
         playbackStepIndex++;
         
-        // Fixed 500ms delay between steps
-        await delay(PLAYBACK_DELAY);
+        // Use the recorded delay for human-like timing, with minimum delay
+        const nextAction = actions[playbackStepIndex];
+        const delayMs = nextAction?.delay || DEFAULT_DELAY;
+        const actualDelay = Math.max(delayMs, MIN_DELAY);
+        
+        console.log('[Auto-Form Pro] Waiting', actualDelay + 'ms before next action (human-like timing)');
+        await delay(actualDelay);
       } catch (error) {
         console.error('[Auto-Form Pro] Playback error:', error);
         notifyBackground('PLAYBACK_ERROR', { error: error.message });
