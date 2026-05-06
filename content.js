@@ -91,8 +91,14 @@
     }
   }
 
+  // Debounce timers for input handling
+  let inputDebounceTimer = null;
+  const INPUT_DEBOUNCE_DELAY = 500; // Wait 500ms after user stops typing
+  let lastInputElement = null;
+  let lastInputValue = '';
+
   /**
-   * Start recording mode
+   * Start recording mode - uses event delegation on document.body
    */
   function startRecording(startUrl) {
     if (isRecording) return;
@@ -103,15 +109,20 @@
     // Capture starting URL if not already set
     const currentStartUrl = startUrl || window.location.href;
     
-    // Add event listeners - use capture phase to catch all events
-    document.addEventListener('click', handleClick, true);
-    document.addEventListener('mousedown', handleMouseDown, true);
-    document.addEventListener('input', handleInput, true);
-    document.addEventListener('change', handleChange, true);
-    document.addEventListener('submit', handleSubmit, true);
-    document.addEventListener('keydown', handleKeyDown, true);
+    // Use event delegation on document.body to handle dynamic content
+    // Capture phase (true) to catch events before they can be stopped
+    document.body.addEventListener('click', handleDelegatedClick, true);
+    document.body.addEventListener('mousedown', handleDelegatedMouseDown, true);
+    document.body.addEventListener('input', handleDelegatedInput, true);
+    document.body.addEventListener('change', handleDelegatedChange, true);
+    document.body.addEventListener('submit', handleDelegatedSubmit, true);
+    document.body.addEventListener('keydown', handleDelegatedKeyDown, true);
+    
+    // Also listen for scroll events which may trigger dynamic content
+    document.body.addEventListener('scroll', handleScroll, { passive: true });
     
     console.log('[Auto-Form Pro] Recording started on:', currentStartUrl);
+    console.log('[Auto-Form Pro] Using event delegation for dynamic content capture');
   }
 
   /**
@@ -122,18 +133,39 @@
     
     isRecording = false;
     
-    // Remove event listeners
-    document.removeEventListener('click', handleClick, true);
-    document.removeEventListener('mousedown', handleMouseDown, true);
-    document.removeEventListener('input', handleInput, true);
-    document.removeEventListener('change', handleChange, true);
-    document.removeEventListener('submit', handleSubmit, true);
-    document.removeEventListener('keydown', handleKeyDown, true);
+    // Clear any pending debounce
+    if (inputDebounceTimer) {
+      clearTimeout(inputDebounceTimer);
+      // Save any pending input
+      if (lastInputElement && lastInputValue) {
+        saveInputAction(lastInputElement, lastInputValue);
+      }
+    }
     
-    // Reset timestamp for next recording
+    // Remove event listeners
+    document.body.removeEventListener('click', handleDelegatedClick, true);
+    document.body.removeEventListener('mousedown', handleDelegatedMouseDown, true);
+    document.body.removeEventListener('input', handleDelegatedInput, true);
+    document.body.removeEventListener('change', handleDelegatedChange, true);
+    document.body.removeEventListener('submit', handleDelegatedSubmit, true);
+    document.body.removeEventListener('keydown', handleDelegatedKeyDown, true);
+    document.body.removeEventListener('scroll', handleScroll, { passive: true });
+    
+    // Reset state
     lastActionTimestamp = 0;
+    lastInputElement = null;
+    lastInputValue = '';
     
     console.log('[Auto-Form Pro] Recording stopped. Actions captured:', recordedActions.length);
+  }
+
+  /**
+   * Handle scroll events (for infinite scroll pages)
+   */
+  function handleScroll(event) {
+    // Scroll events can trigger dynamic content loading
+    // We don't record them as actions, but we note that they happened
+    console.log('[Auto-Form Pro] Scroll detected - dynamic content may load');
   }
 
   /**
@@ -312,17 +344,27 @@
   }
 
   /**
-   * Handle click events - captures ALL clicks
+   * SMART EVENT DELEGATION - Handle clicks via event delegation
+   * Walks up DOM tree to find interactive parent element
    */
-  function handleClick(event) {
+  function handleDelegatedClick(event) {
     if (!isRecording) return;
     
-    const element = event.target;
-    const selector = generateUniqueSelector(element);
+    // Skip if clicking inside our own panel
+    if (event.target.closest('#auto-form-pro-panel')) return;
     
-    // Even if we can't generate a perfect selector, try to record the action
+    // Find the closest interactive element (smart parent detection)
+    const interactiveElement = findInteractiveElement(event.target);
+    
+    if (!interactiveElement) {
+      console.log('[Auto-Form Pro] No interactive element found for click on:', event.target.tagName);
+      return;
+    }
+    
+    const selector = generateRobustSelector(interactiveElement);
+    
     if (!selector) {
-      console.log('[Auto-Form Pro] Click detected but no selector generated for:', element.tagName);
+      console.log('[Auto-Form Pro] Could not generate selector for:', interactiveElement.tagName);
       return;
     }
     
@@ -332,91 +374,188 @@
     const action = {
       type: 'click',
       selector: selector,
-      tagName: element.tagName,
+      tagName: interactiveElement.tagName,
+      elementType: getElementType(interactiveElement),
       timestamp: now,
       delay: delay,
-      url: window.location.href
+      url: window.location.href,
+      // Store additional metadata for better playback
+      text: interactiveElement.textContent?.trim().substring(0, 50),
+      href: interactiveElement.href || null
     };
     
     recordedActions.push(action);
     lastActionTimestamp = now;
     notifyBackground('RECORD_ACTION', action);
     
-    // Get element description for logging
-    const elementDesc = getElementDescription(element);
-    const isLink = element.tagName === 'A' || element.closest('a');
-    const isButton = element.tagName === 'BUTTON' || element.type === 'submit' || element.type === 'button';
-    const linkInfo = isLink ? ' [LINK]' : isButton ? ' [BUTTON]' : '';
-    
-    const logMsg = `🖱️ CLICK: ${elementDesc}${linkInfo}`;
-    notifyBackground('LOG_ACTION', { 
-      message: logMsg,
-      url: window.location.href 
-    });
+    // Log the action
+    const elementDesc = getElementDescription(interactiveElement);
+    const logMsg = `🖱️ CLICK: ${elementDesc}`;
+    notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
     updateFloatingPanel(logMsg);
     
-    console.log('[Auto-Form Pro] Click recorded:', selector, 'on', element.tagName, 'Delay:', delay + 'ms');
+    console.log('[Auto-Form Pro] Smart click recorded on', interactiveElement.tagName, ':', selector);
   }
 
   /**
-   * Handle mousedown events - backup for clicks that might be missed
+   * SMART MOUSEDOWN - Backup event handler
    */
-  function handleMouseDown(event) {
+  function handleDelegatedMouseDown(event) {
+    // This serves as backup to click events
+    // Most actions are already captured by click, but some frameworks use mousedown
     if (!isRecording) return;
+    if (event.target.closest('#auto-form-pro-panel')) return;
     
-    // Only record if we haven't recorded a click recently for this element
-    const element = event.target;
+    // Only record if no click was recorded recently for similar element
     const now = Date.now();
-    
-    // Check if we already recorded a click on this element in the last 100ms
-    const recentClick = recordedActions.find(a => 
+    const recentAction = recordedActions.find(a => 
       a.type === 'click' && 
-      a.timestamp > now - 100 &&
-      a.tagName === element.tagName
+      a.timestamp > now - 150
     );
     
-    if (!recentClick) {
-      // Record this as a click too
-      const selector = generateUniqueSelector(element);
-      if (selector) {
-        const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
-        
-        recordedActions.push({
-          type: 'click',
-          selector: selector,
-          tagName: element.tagName,
-          timestamp: now,
-          delay: delay,
-          url: window.location.href
-        });
-        
-        lastActionTimestamp = now;
-        notifyBackground('RECORD_ACTION', { type: 'click', selector, timestamp: now, delay });
-        
-        const logMsg = `🖱️ MOUSE: ${getElementDescription(element)}`;
-        notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
-        updateFloatingPanel(logMsg);
-      }
+    if (!recentAction) {
+      // Fall back to click handler logic
+      handleDelegatedClick(event);
     }
+  }
+
+  /**
+   * SMART INPUT HANDLING - Aggressive input capture with debounce
+   * Uses 'input' event (fires immediately) instead of 'change' (fires on blur)
+   */
+  function handleDelegatedInput(event) {
+    if (!isRecording) return;
+    
+    const element = event.target;
+    
+    // Only handle input elements and contenteditable
+    if (!isInputElement(element)) return;
+    
+    const value = element.isContentEditable ? element.innerText : element.value;
+    
+    // Store current state for debounced save
+    lastInputElement = element;
+    lastInputValue = value;
+    
+    // Clear existing timer
+    if (inputDebounceTimer) {
+      clearTimeout(inputDebounceTimer);
+    }
+    
+    // Set new timer to save after user stops typing
+    inputDebounceTimer = setTimeout(() => {
+      saveInputAction(element, value);
+    }, INPUT_DEBOUNCE_DELAY);
+  }
+
+  /**
+   * Save input action after debounce
+   */
+  function saveInputAction(element, value) {
+    if (!isRecording) return;
+    
+    const selector = generateRobustSelector(element);
+    if (!selector) return;
+    
+    const now = Date.now();
+    const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+    
+    // Check if last action was on same element - if so, update it instead of adding new
+    const lastAction = recordedActions[recordedActions.length - 1];
+    if (lastAction && lastAction.type === 'input' && lastAction.selector === selector) {
+      // Update existing action
+      lastAction.value = value;
+      lastAction.timestamp = now;
+      console.log('[Auto-Form Pro] Updated input value for:', selector);
+    } else {
+      // Add new action
+      recordedActions.push({
+        type: 'input',
+        selector: selector,
+        value: value,
+        timestamp: now,
+        delay: delay,
+        url: window.location.href
+      });
+      
+      lastActionTimestamp = now;
+      notifyBackground('RECORD_ACTION', { type: 'input', selector, value, timestamp: now, delay });
+      
+      const valuePreview = value.length > 30 ? value.substring(0, 30) + '...' : value;
+      const logMsg = `⌨️ INPUT: ${getElementDescription(element)} = "${valuePreview}" (${value.length} chars)`;
+      notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+      updateFloatingPanel(logMsg);
+      
+      console.log('[Auto-Form Pro] Input recorded:', selector, 'Value:', valuePreview);
+    }
+    
+    // Reset
+    lastInputElement = null;
+    lastInputValue = '';
+  }
+
+  /**
+   * SMART CHANGE HANDLING - For checkboxes, radios, selects
+   */
+  function handleDelegatedChange(event) {
+    if (!isRecording) return;
+    
+    const element = event.target;
+    
+    // Handle different element types
+    if (element.type === 'checkbox' || element.type === 'radio') {
+      const selector = generateRobustSelector(element);
+      if (!selector) return;
+      
+      const now = Date.now();
+      const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
+      
+      recordedActions.push({
+        type: 'change',
+        selector: selector,
+        value: element.checked,
+        inputType: element.type,
+        timestamp: now,
+        delay: delay,
+        url: window.location.href
+      });
+      
+      lastActionTimestamp = now;
+      notifyBackground('RECORD_ACTION', { type: 'change', selector, value: element.checked, timestamp: now, delay });
+      
+      const logMsg = `� ${element.type.toUpperCase()}: ${getElementDescription(element)} = ${element.checked ? '✓' : '☐'}`;
+      notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+      updateFloatingPanel(logMsg);
+      
+      console.log('[Auto-Form Pro] Checkbox/Radio recorded:', selector, 'Checked:', element.checked);
+    }
+    // Note: Select elements are handled via click on option or just record the final value
   }
 
   /**
    * Handle form submissions
    */
-  function handleSubmit(event) {
+  function handleDelegatedSubmit(event) {
     if (!isRecording) return;
     
     const form = event.target;
-    const selector = generateUniqueSelector(form);
+    const selector = generateRobustSelector(form);
     
     if (selector) {
+      // Save any pending input before form submission
+      if (inputDebounceTimer && lastInputElement && lastInputValue) {
+        clearTimeout(inputDebounceTimer);
+        saveInputAction(lastInputElement, lastInputValue);
+      }
+      
       const now = Date.now();
       const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
       
       recordedActions.push({
         type: 'submit',
         selector: selector,
-        tagName: 'FORM',
+        formId: form.id || null,
+        formName: form.name || null,
         timestamp: now,
         delay: delay,
         url: window.location.href
@@ -425,7 +564,7 @@
       lastActionTimestamp = now;
       notifyBackground('RECORD_ACTION', { type: 'submit', selector, timestamp: now, delay });
       
-      const logMsg = `📤 SUBMIT: Form ${form.id || form.name || 'unnamed'}`;
+      const logMsg = `📤 SUBMIT: Form "${form.id || form.name || 'unnamed'}"`;
       notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
       updateFloatingPanel(logMsg);
       
@@ -434,37 +573,63 @@
   }
 
   /**
-   * Handle keyboard events
+   * Handle keyboard events (Enter, Tab, Escape)
    */
-  function handleKeyDown(event) {
+  function handleDelegatedKeyDown(event) {
     if (!isRecording) return;
     
-    // Record special keys
-    if (event.key === 'Enter' || event.key === 'Tab' || event.key === 'Escape') {
-      const element = event.target;
-      const selector = generateUniqueSelector(element);
+    // Only record special keys
+    if (!['Enter', 'Tab', 'Escape'].includes(event.key)) return;
+    
+    const element = event.target;
+    const selector = generateRobustSelector(element);
+    
+    if (selector) {
+      const now = Date.now();
+      const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
       
-      if (selector) {
-        const now = Date.now();
-        const delay = recordedActions.length > 0 ? now - lastActionTimestamp : 0;
-        
-        recordedActions.push({
-          type: 'keydown',
-          selector: selector,
-          key: event.key,
-          timestamp: now,
-          delay: delay,
-          url: window.location.href
-        });
-        
-        lastActionTimestamp = now;
-        notifyBackground('RECORD_ACTION', { type: 'keydown', selector, key: event.key, timestamp: now, delay });
-        
-        const logMsg = `⌨️ KEY: ${event.key} on ${getElementDescription(element)}`;
-        notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
-        updateFloatingPanel(logMsg);
-      }
+      recordedActions.push({
+        type: 'keydown',
+        selector: selector,
+        key: event.key,
+        timestamp: now,
+        delay: delay,
+        url: window.location.href
+      });
+      
+      lastActionTimestamp = now;
+      notifyBackground('RECORD_ACTION', { type: 'keydown', selector, key: event.key, timestamp: now, delay });
+      
+      const logMsg = `⌨️ KEY: ${event.key} on ${getElementDescription(element)}`;
+      notifyBackground('LOG_ACTION', { message: logMsg, url: window.location.href });
+      updateFloatingPanel(logMsg);
     }
+  }
+
+  /**
+   * Check if element is an input element
+   */
+  function isInputElement(element) {
+    const tag = element.tagName.toLowerCase();
+    const inputTypes = ['input', 'textarea', 'select'];
+    
+    if (inputTypes.includes(tag)) return true;
+    if (element.isContentEditable) return true;
+    if (element.getAttribute('role') === 'textbox') return true;
+    
+    return false;
+  }
+
+  /**
+   * Get element type for action metadata
+   */
+  function getElementType(element) {
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'a') return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'input') return element.type || 'text';
+    if (element.getAttribute('role')) return element.getAttribute('role');
+    return tag;
   }
 
   /**
@@ -570,90 +735,238 @@
   }
 
   /**
-   * Generate a unique CSS selector for an element
+   * SMART PARENT DETECTION - Walk up DOM tree to find interactive element
+   * Handles "ghost elements" like spans inside buttons
    */
-  function generateUniqueSelector(element) {
+  function findInteractiveElement(target) {
+    if (!target || target === document.body || target === document.documentElement) {
+      return null;
+    }
+    
+    // Interactive element tags
+    const interactiveTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL'];
+    
+    // Interactive roles
+    const interactiveRoles = ['button', 'link', 'checkbox', 'radio', 'menuitem', 'tab', 'treeitem'];
+    
+    let current = target;
+    let depth = 0;
+    const maxDepth = 5; // Don't walk too far up
+    
+    while (current && current !== document.body && depth < maxDepth) {
+      const tag = current.tagName;
+      const role = current.getAttribute('role');
+      
+      // Check if this is an interactive element
+      if (interactiveTags.includes(tag)) {
+        return current;
+      }
+      
+      // Check for ARIA roles that indicate interactivity
+      if (role && interactiveRoles.includes(role.toLowerCase())) {
+        return current;
+      }
+      
+      // Check for click handlers (elements with onclick or cursor:pointer)
+      const style = window.getComputedStyle(current);
+      if (style.cursor === 'pointer' || current.onclick || current.hasAttribute('ng-click') || 
+          current.hasAttribute('data-click') || current.hasAttribute('v-on:click')) {
+        return current;
+      }
+      
+      // Move up to parent
+      current = current.parentElement;
+      depth++;
+    }
+    
+    // If we walked up but found nothing interactive, return original target
+    // only if it seems clickable (has click handler or pointer cursor)
+    const targetStyle = window.getComputedStyle(target);
+    if (targetStyle.cursor === 'pointer' || target.onclick) {
+      return target;
+    }
+    
+    return null;
+  }
+
+  /**
+   * ROBUST SELECTOR GENERATION - Creates stable selectors that work across sessions
+   * Avoids dynamic class names, prioritizes stable attributes
+   */
+  function generateRobustSelector(element) {
     if (!element || element === document.body) return null;
     
-    // Try ID first
-    if (element.id) {
+    // Priority 1: ID (if stable - not auto-generated)
+    if (element.id && !isAutoGeneratedId(element.id)) {
       const idSelector = `#${CSS.escape(element.id)}`;
-      if (document.querySelectorAll(idSelector).length === 1) {
+      if (isUniqueSelector(idSelector)) {
         return idSelector;
       }
     }
     
-    // Try data attributes
-    const dataAttrs = ['data-testid', 'data-id', 'data-automation-id', 'data-qa'];
-    for (const attr of dataAttrs) {
+    // Priority 2: Name attribute (very stable for forms)
+    if (element.name) {
+      const nameSelector = `${element.tagName.toLowerCase()}[name="${CSS.escape(element.name)}"]`;
+      if (isUniqueSelector(nameSelector)) {
+        return nameSelector;
+      }
+    }
+    
+    // Priority 3: Data attributes (test automation friendly)
+    const stableDataAttrs = ['data-testid', 'data-id', 'data-automation-id', 'data-qa', 'data-cy'];
+    for (const attr of stableDataAttrs) {
       if (element.hasAttribute(attr)) {
         const value = element.getAttribute(attr);
         const selector = `[${attr}="${CSS.escape(value)}"]`;
-        if (document.querySelectorAll(selector).length === 1) {
+        if (isUniqueSelector(selector)) {
           return selector;
         }
       }
     }
     
-    // Try name attribute for form elements
-    if (element.name) {
-      const nameSelector = `${element.tagName.toLowerCase()}[name="${CSS.escape(element.name)}"]`;
-      if (document.querySelectorAll(nameSelector).length === 1) {
-        return nameSelector;
+    // Priority 4: Type + Placeholder combination for inputs
+    if (element.placeholder && element.tagName === 'INPUT') {
+      const type = element.type || 'text';
+      const selector = `input[type="${type}"][placeholder="${CSS.escape(element.placeholder)}"]`;
+      if (isUniqueSelector(selector)) {
+        return selector;
       }
     }
     
-    // Build path using classes and tag names
-    let path = [];
-    let current = element;
+    // Priority 5: ARIA attributes
+    if (element.getAttribute('aria-label')) {
+      const selector = `[aria-label="${CSS.escape(element.getAttribute('aria-label'))}"]`;
+      if (isUniqueSelector(selector)) {
+        return selector;
+      }
+    }
     
-    while (current && current !== document.body) {
+    // Priority 6: Stable class names (avoid dynamic ones like _1a2b3c)
+    const stableClasses = getStableClasses(element);
+    if (stableClasses.length > 0) {
+      const classSelector = `${element.tagName.toLowerCase()}.${stableClasses.map(c => CSS.escape(c)).join('.')}`;
+      if (isUniqueSelector(classSelector)) {
+        return classSelector;
+      }
+    }
+    
+    // Priority 7: Text content for buttons and links
+    if (element.textContent && (element.tagName === 'BUTTON' || element.tagName === 'A')) {
+      const text = element.textContent.trim().substring(0, 30);
+      if (text) {
+        // Try with tag and text
+        const textSelector = `${element.tagName.toLowerCase()}:has-text("${text}")`;
+        // Note: :has-text may not work in all browsers, use alternative
+        const attrSelector = `${element.tagName.toLowerCase()}[data-afp-text="${CSS.escape(text)}"]`;
+        // Store text as data attribute for playback
+        element.setAttribute('data-afp-text', text);
+        if (isUniqueSelector(attrSelector)) {
+          return attrSelector;
+        }
+      }
+    }
+    
+    // Priority 8: Structural path with nth-child
+    return generateStructuralPath(element);
+  }
+
+  /**
+   * Check if ID looks auto-generated (like react root, or random strings)
+   */
+  function isAutoGeneratedId(id) {
+    // React generated IDs often contain colons
+    if (id.includes(':')) return true;
+    // Random strings like "id_1a2b3c" or "ember123"
+    if (/^id_[a-f0-9]{6,}$/.test(id)) return true;
+    if (/^ember\d+$/.test(id)) return true;
+    if (/^react-root/.test(id)) return true;
+    // Numeric only IDs
+    if (/^\d+$/.test(id)) return true;
+    return false;
+  }
+
+  /**
+   * Check if selector is unique on the page
+   */
+  function isUniqueSelector(selector) {
+    try {
+      const elements = document.querySelectorAll(selector);
+      return elements.length === 1;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Get stable class names (filter out dynamic hashes)
+   */
+  function getStableClasses(element) {
+    if (!element.className) return [];
+    
+    const classes = element.className.split(' ').filter(c => c.trim());
+    
+    // Filter out classes that look like auto-generated hashes
+    return classes.filter(cls => {
+      // Skip classes that are just hashes (like _1a2b3c, css-123abc)
+      if (/^[a-f0-9]{6,}$/i.test(cls)) return false;
+      if (/^css-[a-z0-9]{5,}$/i.test(cls)) return false;
+      if (/^styled__/i.test(cls)) return false;
+      // Skip very short random-looking classes
+      if (/^_[a-z0-9]{5,}$/i.test(cls)) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Generate structural path as last resort
+   */
+  function generateStructuralPath(element) {
+    const path = [];
+    let current = element;
+    let depth = 0;
+    const maxDepth = 6;
+    
+    while (current && current !== document.body && depth < maxDepth) {
       let selector = current.tagName.toLowerCase();
       
+      // Add ID if present (even if potentially dynamic, better than nothing)
       if (current.id) {
-        selector = `#${CSS.escape(current.id)}`;
+        selector += `#${CSS.escape(current.id)}`;
         path.unshift(selector);
         break;
       }
       
-      if (current.className) {
-        const classes = current.className.split(' ')
-          .filter(c => c.trim())
-          .map(c => CSS.escape(c.trim()))
-          .join('.');
-        if (classes) {
-          selector += `.${classes}`;
-        }
+      // Add stable classes if any
+      const stableClasses = getStableClasses(current);
+      if (stableClasses.length > 0) {
+        selector += '.' + stableClasses.map(c => CSS.escape(c)).join('.');
       }
       
-      // Add nth-child for siblings
-      const siblings = Array.from(current.parentNode?.children || []);
-      const sameTagSiblings = siblings.filter(s => s.tagName === current.tagName);
-      if (sameTagSiblings.length > 1) {
-        const index = siblings.indexOf(current) + 1;
-        selector += `:nth-child(${index})`;
+      // Add nth-child for disambiguation
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(
+          s => s.tagName === current.tagName
+        );
+        if (siblings.length > 1) {
+          const index = Array.from(parent.children).indexOf(current) + 1;
+          selector += `:nth-child(${index})`;
+        }
       }
       
       path.unshift(selector);
       current = current.parentElement;
-      
-      // Limit path length
-      if (path.length > 5) break;
+      depth++;
     }
     
-    const fullSelector = path.join(' > ');
-    
-    // Verify uniqueness
-    try {
-      if (document.querySelectorAll(fullSelector).length === 1) {
-        return fullSelector;
-      }
-    } catch (e) {
-      // Invalid selector, continue
-    }
-    
-    // Fallback: use full path from body
-    return fullSelector;
+    return path.join(' > ');
+  }
+
+  /**
+   * Legacy selector generation (kept for compatibility)
+   */
+  function generateUniqueSelector(element) {
+    return generateRobustSelector(element);
   }
 
   /**
